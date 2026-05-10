@@ -8,37 +8,50 @@ from pathlib import Path
 import torch
 from PIL import Image
 
-from src.shared.dataset import get_transform # per fer les transformacions de la imatge
 from src.baseline.model import DecoderRNN, EncoderCNN
-from src.shared.vocabulary import Vocabulary  # noqa: F401  (needed for pickle load)
+from src.shared.dataset import get_transform
+from src.shared.vocabulary import Vocabulary  # noqa: F401
+
+
+def detect_device() -> torch.device:
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def load_checkpoint(ckpt_path: str, vocab_path: str, device: torch.device):
     with open(vocab_path, "rb") as f:
-        vocab = pickle.load(f) # carrega vocabulari
-    ckpt = torch.load(ckpt_path, map_location=device) # recupera els checkpoints
-    a = ckpt["args"] # del chechpoint agafa els hiperperàmetres d'aquell entrenament
-    encoder = EncoderCNN(a["embed_size"], backbone=a["backbone"]).to(device).eval() # reconstrueix l'encoder i es posa en mode eval
-    decoder = DecoderRNN(a["embed_size"], a["hidden_size"], len(vocab), # i el decoder
-                         a["num_layers"]).to(device).eval() # i mode eval
-    encoder.load_state_dict(ckpt["encoder"]) # carrega pesos entrenats a l'encoder
-    decoder.load_state_dict(ckpt["decoder"]) # carrega pesos
+        vocab = pickle.load(f)
+    ckpt = torch.load(ckpt_path, map_location=device)
+    args = ckpt["args"]
+    encoder = EncoderCNN(args["embed_size"], backbone=args["backbone"]).to(device).eval()
+    decoder = DecoderRNN(
+        args["embed_size"],
+        args["hidden_size"],
+        len(vocab),
+        args["num_layers"],
+        dropout=args.get("dropout", 0.5),
+        decoder_direction=args.get("decoder_direction", "uni"),
+    ).to(device).eval()
+    encoder.load_state_dict(ckpt["encoder"])
+    decoder.load_state_dict(ckpt["decoder"])
     return encoder, decoder, vocab
 
 
-@torch.no_grad() # no volem fer backprop. Aquesta seguent funció genera la caption d'una image.
+@torch.no_grad()
 def caption_image(image_path: str, encoder, decoder, vocab, device) -> str:
-    tfm = get_transform(train=False) # crea les transformacions
-    img = Image.open(image_path).convert("RGB") # obre la imatge i la converteix a 3 canals (input esperat)
-    x = tfm(img).unsqueeze(0).to(device) # aplica les transformacions a la imatge
-    feat = encoder(x) # troba el vector de característiques de la imatge passant-la per l'encoder
-    ids = decoder.sample(feat).cpu().numpy()[0].tolist() # crea la caption (lista d'ids) del vector de característiques passant-lo pel decoder
-    return vocab.decode(ids) # tradueix la llista d'ids a text
+    tfm = get_transform(train=False)
+    img = Image.open(image_path).convert("RGB")
+    x = tfm(img).unsqueeze(0).to(device)
+    feat = encoder(x)
+    ids = decoder.sample(feat).cpu().numpy()[0].tolist()
+    return vocab.decode(ids)
 
 
 @torch.no_grad()
 def caption_pil_image(pil_img, encoder, decoder, vocab, device) -> str:
-    """Com caption_image però rep un PIL.Image directament (per al dataset HuggingFace)."""
     tfm = get_transform(train=False)
     x = tfm(pil_img.convert("RGB")).unsqueeze(0).to(device)
     feat = encoder(x)
@@ -47,16 +60,16 @@ def caption_pil_image(pil_img, encoder, decoder, vocab, device) -> str:
 
 
 def main():
-    p = argparse.ArgumentParser() # arguments
-    p.add_argument("--image", required=True) # paht de la imarge que vols captionar
-    p.add_argument("--checkpoint", required=True) # quin model entrenat vols carregar
-    p.add_argument("--vocab", default="data/flickr8k/vocab.pkl") # path del vocab
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--image", required=True)
+    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument("--vocab", default="data/flickr8k/vocab.pkl")
+    args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # assigna device gpu i si no pots cpu
-    encoder, decoder, vocab = load_checkpoint(args.checkpoint, args.vocab, device) # funció load_chechpoint per crear el model
-    cap = caption_image(args.image, encoder, decoder, vocab, device) # funció que et retorna la caption de la imarge
-    print(f"{Path(args.image).name}: {cap}") # mostra el nom de la imatge i la caption generada.
+    device = detect_device()
+    encoder, decoder, vocab = load_checkpoint(args.checkpoint, args.vocab, device)
+    cap = caption_image(args.image, encoder, decoder, vocab, device)
+    print(f"{Path(args.image).name}: {cap}")
 
 
 if __name__ == "__main__":

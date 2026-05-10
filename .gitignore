@@ -1,1 +1,17 @@
 checkpoints/
+checkpoints_attention/
+
+# Local datasets and generated artifacts
+data/coco2017/
+data/embeddings/
+data/flickr30k_hf/
+wandb/
+.mplconfig/
+
+# OS/cache files
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# Local exports
+wandb_export_*.csv

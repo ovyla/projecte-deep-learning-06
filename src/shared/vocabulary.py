@@ -5,8 +5,12 @@ import pickle # per guardar el vocabulari entrenat en un .pkl
 import re # per a la funció simple_tokenize, que utilitza re per a tokenitzar el text
 from collections import Counter # counter de freqs: Counter(["dog","cat","dog"]) --> Counter({"dog":2,"cat":1})
 from pathlib import Path # per rutes de fitxers de manera neta
+from typing import TYPE_CHECKING
 
 import pandas as pd # per llegir el CSV de captions i processar-lo com a DataFrame
+
+if TYPE_CHECKING:
+    import torch
 
 # Special tokens
 PAD, START, END, UNK = "<pad>", "<start>", "<end>", "<unk>"
@@ -102,7 +106,7 @@ def load_word2vec_weights(w2v_path: str | Path, vocab: Vocabulary, binary: bool 
       - Text (.txt):   capçalera "vocab_size dim" + una paraula per línia
     """
     import torch
-    from gensim.models import KeyedVectors
+    from gensim.models import KeyedVectors  # type: ignore
 
     w2v_path = Path(w2v_path)
     if binary is None:

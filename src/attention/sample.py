@@ -1,4 +1,5 @@
 """Generate a caption for a single image using the attention model with beam search."""
+
 from __future__ import annotations
 
 import argparse
@@ -19,14 +20,18 @@ def load_checkpoint(ckpt_path: str, vocab_path: str, device: torch.device):
     ckpt = torch.load(ckpt_path, map_location=device)
     a = ckpt["args"]
     encoder = EncoderCNNAttention(backbone=a["backbone"]).to(device).eval()
-    decoder = AttentionDecoder(
-        encoder_dim=2048,
-        embed_size=a["embed_size"],
-        hidden_size=a["hidden_size"],
-        vocab_size=len(vocab),
-        attention_dim=a["attention_dim"],
-        dropout=a["dropout"],
-    ).to(device).eval()
+    decoder = (
+        AttentionDecoder(
+            encoder_dim=2048,
+            embed_size=a["embed_size"],
+            hidden_size=a["hidden_size"],
+            vocab_size=len(vocab),
+            attention_dim=a["attention_dim"],
+            dropout=a["dropout"],
+        )
+        .to(device)
+        .eval()
+    )
     encoder.load_state_dict(ckpt["encoder"])
     decoder.load_state_dict(ckpt["decoder"])
     return encoder, decoder, vocab
@@ -37,7 +42,7 @@ def caption_image(image_path: str, encoder, decoder, vocab, device, beam_size: i
     tfm = get_transform(train=False)
     img = Image.open(image_path).convert("RGB")
     x = tfm(img).unsqueeze(0).to(device)
-    features = encoder(x)                    # [1, 49, 2048]
+    features = encoder(x)  # [1, 49, 2048]
     ids = decoder.beam_search(
         features,
         start_idx=vocab.word2idx["<start>"],

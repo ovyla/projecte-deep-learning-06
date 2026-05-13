@@ -3,6 +3,7 @@
 Usage:
     python -m src.attention.train --epochs 10 --batch-size 32
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,10 +21,22 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunction  # mètriques BLEU
 from nltk.translate.meteor_score import meteor_score  # mètrica METEOR (té en compte sinònims)
 
-from src.shared.dataset import get_loaders, split_image_ids, load_captions_df, get_loaders_hf  # dataloaders i divisió del dataset
+from src.shared.dataset import (
+    get_loaders,
+    split_image_ids,
+    load_captions_df,
+    get_loaders_hf,
+)  # dataloaders i divisió del dataset
 from src.attention.model import AttentionDecoder, EncoderCNNAttention
 from src.attention.sample import caption_image, caption_pil_image  # per generar captions durant l'avaluació BLEU
-from src.shared.vocabulary import Vocabulary, build_vocab, build_vocab_hf, simple_tokenize, load_glove_weights, load_word2vec_weights  # vocabulari i tokenitzador
+from src.shared.vocabulary import (
+    Vocabulary,
+    build_vocab,
+    build_vocab_hf,
+    simple_tokenize,
+    load_glove_weights,
+    load_word2vec_weights,
+)  # vocabulari i tokenitzador
 from src.shared.losses import SemanticCrossEntropyLoss, build_soft_labels  # loss semàntica
 
 
@@ -48,34 +61,72 @@ def parse_args():
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--log-step", type=int, default=20)
 
-    p.add_argument("--glove-path", default=None,
-                   help="Ruta al fitxer GloVe. Si s'especifica, activa la loss semàntica i inicialitza embeddings.")
-    p.add_argument("--word2vec-path", default=None,
-                   help="Ruta al fitxer Word2Vec (.bin binari o .txt text amb capçalera). "
-                        "S'ignora si --glove-path també s'especifica.")
-    p.add_argument("--word2vec-binary", action="store_true",
-                   help="Indica que el fitxer Word2Vec és en format binari (.bin). "
-                        "Si no s'activa, es detecta automàticament per l'extensió.")
-    p.add_argument("--no-semantic-loss", action="store_true",
-                   help="Usa CrossEntropyLoss estàndard fins i tot amb GloVe/Word2Vec (embeddings preentrenats però loss CE).")
-    p.add_argument("--freeze-embeddings", action="store_true",
-                   help="Si s'activa, els pesos (GloVe o Word2Vec) no s'actualitzen durant l'entrenament.")
-    p.add_argument("--semantic-temp", type=float, default=10.0,
-                   help="Temperatura pels soft labels semàntics (amb --glove-path o --word2vec-path).")
-    p.add_argument("--finetune-cnn-epoch", type=int, default=None,
-                   help="Epoch a partir de la qual es descongela layer4 de la CNN (None = mai).")
-    p.add_argument("--ds-lambda", type=float, default=1.0,
-                   help="Pes de la Doubly Stochastic Attention regularització. 0 = desactivada.")
-    p.add_argument("--label-smoothing", type=float, default=0.0,
-                   help="Label smoothing per CrossEntropyLoss (0.0 = desactivat, 0.1 recomanat).")
-    p.add_argument("--resume-from", default=None,
-                   help="Checkpoint des del qual continuar l'entrenament (ex: checkpoints/ckpt_epoch14.pt).")
+    p.add_argument(
+        "--glove-path",
+        default=None,
+        help="Ruta al fitxer GloVe. Si s'especifica, activa la loss semàntica i inicialitza embeddings.",
+    )
+    p.add_argument(
+        "--word2vec-path",
+        default=None,
+        help="Ruta al fitxer Word2Vec (.bin binari o .txt text amb capçalera). "
+        "S'ignora si --glove-path també s'especifica.",
+    )
+    p.add_argument(
+        "--word2vec-binary",
+        action="store_true",
+        help="Indica que el fitxer Word2Vec és en format binari (.bin). "
+        "Si no s'activa, es detecta automàticament per l'extensió.",
+    )
+    p.add_argument(
+        "--no-semantic-loss",
+        action="store_true",
+        help="Usa CrossEntropyLoss estàndard fins i tot amb GloVe/Word2Vec (embeddings preentrenats però loss CE).",
+    )
+    p.add_argument(
+        "--freeze-embeddings",
+        action="store_true",
+        help="Si s'activa, els pesos (GloVe o Word2Vec) no s'actualitzen durant l'entrenament.",
+    )
+    p.add_argument(
+        "--semantic-temp",
+        type=float,
+        default=10.0,
+        help="Temperatura pels soft labels semàntics (amb --glove-path o --word2vec-path).",
+    )
+    p.add_argument(
+        "--finetune-cnn-epoch",
+        type=int,
+        default=None,
+        help="Epoch a partir de la qual es descongela layer4 de la CNN (None = mai).",
+    )
+    p.add_argument(
+        "--ds-lambda",
+        type=float,
+        default=1.0,
+        help="Pes de la Doubly Stochastic Attention regularització. 0 = desactivada.",
+    )
+    p.add_argument(
+        "--label-smoothing",
+        type=float,
+        default=0.0,
+        help="Label smoothing per CrossEntropyLoss (0.0 = desactivat, 0.1 recomanat).",
+    )
+    p.add_argument(
+        "--resume-from",
+        default=None,
+        help="Checkpoint des del qual continuar l'entrenament (ex: checkpoints/ckpt_epoch14.pt).",
+    )
 
     # ── Flickr30k HuggingFace ──────────────────────────────────────────────
-    p.add_argument("--flickr30k-hf", action="store_true",
-                   help="Usa el dataset Flickr30k de HuggingFace (nlphuji/flickr30k) en lloc del CSV.")
-    p.add_argument("--flickr30k-hf-cache", default="dataset/flickr30k_hf",
-                   help="Carpeta cache del dataset HuggingFace.")
+    p.add_argument(
+        "--flickr30k-hf",
+        action="store_true",
+        help="Usa el dataset Flickr30k de HuggingFace (nlphuji/flickr30k) en lloc del CSV.",
+    )
+    p.add_argument(
+        "--flickr30k-hf-cache", default="dataset/flickr30k_hf", help="Carpeta cache del dataset HuggingFace."
+    )
 
     p.add_argument("--wandb", action="store_true")
     p.add_argument("--wandb-project", default="image-captioning")
@@ -88,6 +139,7 @@ def parse_args():
 def safe_save(obj, path, retries: int = 5):
     """torch.save amb reintents per errors NFS transitòris."""
     import shutil, time
+
     path = Path(path)
     for attempt in range(retries):
         try:
@@ -124,9 +176,7 @@ def evaluate(encoder, decoder, loader, criterion, device) -> float:
     for images, captions, lengths in loader:
         images = images.to(device)
         captions = captions.to(device)
-        targets = pack_padded_sequence(
-            captions[:, 1:], [l - 1 for l in lengths], batch_first=True
-        ).data
+        targets = pack_padded_sequence(captions[:, 1:], [l - 1 for l in lengths], batch_first=True).data
         features = encoder(images)
         outputs, _ = decoder(features, captions, lengths)
         loss = criterion(outputs, targets)
@@ -139,6 +189,7 @@ def evaluate_bleu(encoder, decoder, vocab, val_ids, df_caps, test_pil, args, dev
     """Calcula BLEU-1, BLEU-4 i METEOR sobre el val set. Retorna dict amb les mètriques."""
     from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
     from nltk.translate.meteor_score import meteor_score
+
     encoder.eval()
     decoder.eval()
     smooth = SmoothingFunction().method1
@@ -155,8 +206,8 @@ def evaluate_bleu(encoder, decoder, vocab, val_ids, df_caps, test_pil, args, dev
         all_hyps.append(hyp)
         all_meteors.append(meteor_score(refs, hyp))
     b1 = corpus_bleu(all_refs, all_hyps, weights=(1, 0, 0, 0))
-    b4 = corpus_bleu(all_refs, all_hyps, weights=(.25, .25, .25, .25))
-    m  = float(np.mean(all_meteors))
+    b4 = corpus_bleu(all_refs, all_hyps, weights=(0.25, 0.25, 0.25, 0.25))
+    m = float(np.mean(all_meteors))
     return {"val/bleu1": b1, "val/bleu4": b4, "val/meteor": m}
 
 
@@ -170,43 +221,49 @@ def main():
     # ── Carrega dataset i vocab (CSV o HuggingFace) ────────────────────────
     if args.flickr30k_hf:
         from datasets import load_dataset
+
         print("[data] carregant Flickr30k HuggingFace...")
-        hf_ds = load_dataset("nlphuji/flickr30k", trust_remote_code=True,
-                             cache_dir=args.flickr30k_hf_cache)
+        hf_ds = load_dataset("nlphuji/flickr30k", trust_remote_code=True, cache_dir=args.flickr30k_hf_cache)
         vp = Path(args.vocab_path)
         if vp.exists():
             with open(vp, "rb") as f:
-                import pickle; vocab = pickle.load(f)
+                import pickle
+
+                vocab = pickle.load(f)
             print(f"[vocab] carregat de {vp} (size={len(vocab)})")
         else:
             print("[vocab] construint des de HF dataset...")
             vocab = build_vocab_hf(hf_ds, threshold=args.vocab_threshold)
             vp.parent.mkdir(parents=True, exist_ok=True)
             with open(vp, "wb") as f:
-                import pickle; pickle.dump(vocab, f)
+                import pickle
+
+                pickle.dump(vocab, f)
             print(f"[vocab] built and saved to {vp} (size={len(vocab)})")
 
         train_loader, val_loader, _ = get_loaders_hf(
-            hf_ds, vocab, batch_size=args.batch_size, num_workers=args.num_workers)
+            hf_ds, vocab, batch_size=args.batch_size, num_workers=args.num_workers
+        )
 
         # Construeix train_ids / test_ids / df_caps per a BLEU
         full = hf_ds["test"]
         train_rows = full.filter(lambda x: x["split"] == "train")
-        val_rows   = full.filter(lambda x: x["split"] == "val")
-        test_rows  = full.filter(lambda x: x["split"] == "test")
-        train_ids  = [r["filename"] for r in train_rows]
-        val_ids    = [r["filename"] for r in val_rows]
-        test_ids   = [r["filename"] for r in test_rows]
+        val_rows = full.filter(lambda x: x["split"] == "val")
+        test_rows = full.filter(lambda x: x["split"] == "test")
+        train_ids = [r["filename"] for r in train_rows]
+        val_ids = [r["filename"] for r in val_rows]
+        test_ids = [r["filename"] for r in test_rows]
         # df_caps: una fila per (imatge, caption) — igual que el CSV
         records = []
         for r in full:
             for cap in r["caption"]:
                 records.append({"image": r["filename"], "caption": cap})
         import pandas as _pd
+
         df_caps_hf = _pd.DataFrame(records)
         # dict filename → PIL image per al test i val (per BLEU sense path a disc)
         test_pil = {r["filename"]: r["image"] for r in test_rows}
-        val_pil  = {r["filename"]: r["image"] for r in val_rows}
+        val_pil = {r["filename"]: r["image"] for r in val_rows}
     else:
         vocab = get_or_build_vocab(args)
         train_loader, val_loader, _, (train_ids, val_ids, test_ids) = get_loaders(
@@ -257,18 +314,14 @@ def main():
         criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
         ls_tag = f" (label_smoothing={args.label_smoothing})" if args.label_smoothing > 0 else ""
         print(f"[loss] CrossEntropyLoss estàndard{ls_tag}")
-    optimizer = torch.optim.Adam(
-        list(decoder.parameters()), lr=args.lr
-    )
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", patience=2, factor=0.5
-    )
+    optimizer = torch.optim.Adam(list(decoder.parameters()), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=2, factor=0.5)
 
     use_wandb = args.wandb
     if use_wandb:
         import wandb
-        wandb.init(project=args.wandb_project, entity=args.wandb_entity,
-                   name=args.run_name, config=vars(args))
+
+        wandb.init(project=args.wandb_project, entity=args.wandb_entity, name=args.run_name, config=vars(args))
         wandb.config.update({"vocab_size": len(vocab)})
 
     train_losses: list[float] = []
@@ -301,9 +354,7 @@ def main():
         for i, (images, captions, lengths) in enumerate(train_loader):
             images = images.to(device, non_blocking=True)
             captions = captions.to(device, non_blocking=True)
-            targets = pack_padded_sequence(
-                captions[:, 1:], [l - 1 for l in lengths], batch_first=True
-            ).data
+            targets = pack_padded_sequence(captions[:, 1:], [l - 1 for l in lengths], batch_first=True).data
 
             features = encoder(images)
             outputs, alphas_sum = decoder(features, captions, lengths)
@@ -321,8 +372,10 @@ def main():
             train_losses.append(loss.item())
             if i % args.log_step == 0:
                 ppl = float(np.exp(min(loss.item(), 20)))
-                print(f"epoch {epoch}/{args.epochs}  step {i}/{len(train_loader)}  "
-                      f"loss={loss.item():.4f}  ppl={ppl:.2f}")
+                print(
+                    f"epoch {epoch}/{args.epochs}  step {i}/{len(train_loader)}  "
+                    f"loss={loss.item():.4f}  ppl={ppl:.2f}"
+                )
 
         train_loss_epoch = float(np.mean(epoch_losses))
         train_ppl_epoch = float(np.exp(min(train_loss_epoch, 20)))
@@ -334,18 +387,22 @@ def main():
         _df_caps_eval = df_caps_hf if args.flickr30k_hf else load_captions_df(args.captions_csv)
         _val_pil_eval = val_pil if args.flickr30k_hf else None
         bleu_metrics = evaluate_bleu(encoder, decoder, vocab, val_ids, _df_caps_eval, _val_pil_eval, args, device)
-        print(f"== epoch {epoch} done  train_loss={train_loss_epoch:.4f}  val_loss={val_loss:.4f}  "
-              f"bleu4={bleu_metrics['val/bleu4']:.3f}  meteor={bleu_metrics['val/meteor']:.3f}  ({elapsed:.0f}s)")
+        print(
+            f"== epoch {epoch} done  train_loss={train_loss_epoch:.4f}  val_loss={val_loss:.4f}  "
+            f"bleu4={bleu_metrics['val/bleu4']:.3f}  meteor={bleu_metrics['val/meteor']:.3f}  ({elapsed:.0f}s)"
+        )
         if use_wandb:
-            wandb.log({
-                "train/loss": train_loss_epoch,
-                "train/perplexity": train_ppl_epoch,
-                "val/loss": val_loss,
-                "val/perplexity": val_ppl,
-                **bleu_metrics,
-                "epoch": epoch,
-                "lr": optimizer.param_groups[0]["lr"],
-            })
+            wandb.log(
+                {
+                    "train/loss": train_loss_epoch,
+                    "train/perplexity": train_ppl_epoch,
+                    "val/loss": val_loss,
+                    "val/perplexity": val_ppl,
+                    **bleu_metrics,
+                    "epoch": epoch,
+                    "lr": optimizer.param_groups[0]["lr"],
+                }
+            )
 
         ckpt = {
             "epoch": epoch,
@@ -385,6 +442,7 @@ def main():
 
     # --- BLEU + METEOR evaluation on test set (millor checkpoint) ---
     import nltk
+
     nltk.download("wordnet", quiet=True)
     nltk.download("omw-1.4", quiet=True)
     print("\n[bleu+meteor] avaluant sobre el conjunt de test...")
@@ -402,7 +460,11 @@ def main():
 
     all_refs, all_hyps = [], []
     all_meteors = []
-    bleu_table = wandb.Table(columns=["image", "generated_caption", "reference_captions", "BLEU-1", "BLEU-4", "METEOR"]) if use_wandb else None
+    bleu_table = (
+        wandb.Table(columns=["image", "generated_caption", "reference_captions", "BLEU-1", "BLEU-4", "METEOR"])
+        if use_wandb
+        else None
+    )
     images_dir_abs = Path(args.images_dir).resolve()
     TABLE_LIMIT = 200
 
@@ -415,9 +477,9 @@ def main():
             hyp = simple_tokenize(caption_pil_image(test_pil[img], encoder, decoder, vocab, device))
         else:
             hyp = simple_tokenize(caption_image(f"{args.images_dir}/{img}", encoder, decoder, vocab, device))
-        b1 = sentence_bleu(refs, hyp, weights=(1,0,0,0), smoothing_function=smooth)
-        b4 = sentence_bleu(refs, hyp, weights=(.25,.25,.25,.25), smoothing_function=smooth)
-        m  = meteor_score(refs, hyp)
+        b1 = sentence_bleu(refs, hyp, weights=(1, 0, 0, 0), smoothing_function=smooth)
+        b4 = sentence_bleu(refs, hyp, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smooth)
+        m = meteor_score(refs, hyp)
         all_refs.append(refs)
         all_hyps.append(hyp)
         all_meteors.append(m)
@@ -427,16 +489,25 @@ def main():
             if args.flickr30k_hf:
                 bleu_table.add_data(str(img), " ".join(hyp), ref_str, round(b1, 3), round(b4, 3), round(m, 3))
             else:
-                bleu_table.add_data(wandb.Image(str(images_dir_abs / img)), " ".join(hyp), ref_str, round(b1, 3), round(b4, 3), round(m, 3))
+                bleu_table.add_data(
+                    wandb.Image(str(images_dir_abs / img)),
+                    " ".join(hyp),
+                    ref_str,
+                    round(b1, 3),
+                    round(b4, 3),
+                    round(m, 3),
+                )
 
-    cb1 = corpus_bleu(all_refs, all_hyps, weights=(1,0,0,0))
-    cb4 = corpus_bleu(all_refs, all_hyps, weights=(.25,.25,.25,.25))
-    cm  = float(np.mean(all_meteors))
+    cb1 = corpus_bleu(all_refs, all_hyps, weights=(1, 0, 0, 0))
+    cb4 = corpus_bleu(all_refs, all_hyps, weights=(0.25, 0.25, 0.25, 0.25))
+    cm = float(np.mean(all_meteors))
     print("-" * 110)
     print(f"[bleu] Corpus BLEU-1: {cb1:.3f}  BLEU-4: {cb4:.3f}  METEOR: {cm:.3f}")
 
     if use_wandb:
-        wandb.log({"bleu/corpus_bleu1": cb1, "bleu/corpus_bleu4": cb4, "bleu/meteor": cm, "bleu/eval_table": bleu_table})
+        wandb.log(
+            {"bleu/corpus_bleu1": cb1, "bleu/corpus_bleu4": cb4, "bleu/meteor": cm, "bleu/eval_table": bleu_table}
+        )
     # ------------------------------------------------
 
     if use_wandb:

@@ -13,19 +13,21 @@ Expected folder structure::
     Flickr30k (HuggingFace):
         load_dataset('nlphuji/flickr30k', cache_dir=...) — imatges ja incloses
 """
-from __future__ import annotations # per anotacions modernes com: list[str]
 
-from pathlib import Path # per rutes de fitxers de manera neta
+from __future__ import annotations  # per anotacions modernes com: list[str]
 
-import pandas as pd # per llegir el CSV de captions
-import torch # per crear tensors
-from PIL import Image # per obrir imatges .jpg
-from torch.utils.data import DataLoader, Dataset # dues classes de PyTorch
-                # Dataset representa una col·lecció de dades
-                # DataLoader agafa un Dataset i crea batches automàticament
-from torchvision import transforms # importa transformacions d'imatge predefinides
+from pathlib import Path  # per rutes de fitxers de manera neta
 
-from src.shared.vocabulary import Vocabulary # la classe Vocabulary del fitxer anterior
+import pandas as pd  # per llegir el CSV de captions
+import torch  # per crear tensors
+from PIL import Image  # per obrir imatges .jpg
+from torch.utils.data import DataLoader, Dataset  # dues classes de PyTorch
+
+# Dataset representa una col·lecció de dades
+# DataLoader agafa un Dataset i crea batches automàticament
+from torchvision import transforms  # importa transformacions d'imatge predefinides
+
+from src.shared.vocabulary import Vocabulary  # la classe Vocabulary del fitxer anterior
 
 
 def load_captions_df(captions_csv: str | Path) -> pd.DataFrame:
@@ -56,26 +58,37 @@ def load_captions_df(captions_csv: str | Path) -> pd.DataFrame:
 
 # Constants de normalització d'ImageNet (perquè l'encoder és un ResNet preentrenat amb ImageNet)
 # les imatges s'han de ppreparar igual que les imatges amb què va ser entrenada la ResNet
-IMAGENET_MEAN = (0.485, 0.456, 0.406) # la mitjana per canal (R, G, B)
-IMAGENET_STD = (0.229, 0.224, 0.225) # la desviació típica per canal (R, G, B)
+IMAGENET_MEAN = (0.485, 0.456, 0.406)  # la mitjana per canal (R, G, B)
+IMAGENET_STD = (0.229, 0.224, 0.225)  # la desviació típica per canal (R, G, B)
 # la normalització fa això per cada píxel: (píxel - mean) / std
 # (per això a stats.txt les imgs normalitzades poden tenir valors negatius i positius)
 
-def get_transform(image_size: int = 224, train: bool = True): # retorna les transformacions que s'aplicaran
-    if train: # durant l'entrenament, volem augmentar les dades amb transformacions aleatòries
-        return transforms.Compose([ # aplica aquestes transformacions una darrere l'altra
-            transforms.Resize(256), # redimensiona mantenint la proporció perquè el costat curt tingui 256 píxels
-            transforms.RandomCrop(image_size), # retalla aleatòriament un quadrat de 224x224 píxels --> data augmentation (cada vegada pot veure un tros diferent de la imatge)
-            transforms.RandomHorizontalFlip(), # gira la imatge horitzontalment 50% de les vegades --> gos mirant dreta o esquerra
-            transforms.ToTensor(), # passem de PIL Image (amb valors de 0 - 255) a Tensor de PyTorch [3, 224, 224] amb valors entre 0 i 1
-            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD), # normalitza cada canal amb la mitjana i desviació d'ImageNet
-        ])                                                     # ara tenim valors centrats al voltant de 0 (ja no de 0 a 1)
-    return transforms.Compose([ # en el cas de validació/test no fa transformaicions aleatòries, només les necessaries per preparar per la ResNet
-        transforms.Resize(256),
-        transforms.CenterCrop(image_size), # retalla el centre, no un tros aleatori (perquè volem resultats estables per a validacions diferents)
-        transforms.ToTensor(),
-        transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-    ])
+
+def get_transform(image_size: int = 224, train: bool = True):  # retorna les transformacions que s'aplicaran
+    if train:  # durant l'entrenament, volem augmentar les dades amb transformacions aleatòries
+        return transforms.Compose(
+            [  # aplica aquestes transformacions una darrere l'altra
+                transforms.Resize(256),  # redimensiona mantenint la proporció perquè el costat curt tingui 256 píxels
+                transforms.RandomCrop(
+                    image_size
+                ),  # retalla aleatòriament un quadrat de 224x224 píxels --> data augmentation (cada vegada pot veure un tros diferent de la imatge)
+                transforms.RandomHorizontalFlip(),  # gira la imatge horitzontalment 50% de les vegades --> gos mirant dreta o esquerra
+                transforms.ToTensor(),  # passem de PIL Image (amb valors de 0 - 255) a Tensor de PyTorch [3, 224, 224] amb valors entre 0 i 1
+                transforms.Normalize(
+                    IMAGENET_MEAN, IMAGENET_STD
+                ),  # normalitza cada canal amb la mitjana i desviació d'ImageNet
+            ]
+        )  # ara tenim valors centrats al voltant de 0 (ja no de 0 a 1)
+    return transforms.Compose(
+        [  # en el cas de validació/test no fa transformaicions aleatòries, només les necessaries per preparar per la ResNet
+            transforms.Resize(256),
+            transforms.CenterCrop(
+                image_size
+            ),  # retalla el centre, no un tros aleatori (perquè volem resultats estables per a validacions diferents)
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+        ]
+    )
 
 
 class Flickr8kDataset(Dataset):
@@ -84,6 +97,7 @@ class Flickr8kDataset(Dataset):
     Each row of the CSV is one (image, caption) pair, so an image with 5
     captions appears 5 times.
     """
+
     # es retorna un tensor d'imatge i un tensor d'ids de paraules per cada mostra
     # si la imatge té 5 captions, apareix 5 vegades al CSV, cada mostra és un (imatge, caption) diferent
 
@@ -110,19 +124,27 @@ class Flickr8kDataset(Dataset):
     def __len__(self) -> int:
         return len(self.df)
 
-    def __getitem__(self, idx: int): # rep un index i retorna la mostra en format (imatge_tensor, caption_numèrica_tensor)
-        row = self.df.iloc[idx] # agafa la fila numero index
-        img_name = row["image"] # nom de la imatge
-        caption = str(row["caption"]) # caption d'aquella mostra (pot haver'n-hi 5)
+    def __getitem__(
+        self, idx: int
+    ):  # rep un index i retorna la mostra en format (imatge_tensor, caption_numèrica_tensor)
+        row = self.df.iloc[idx]  # agafa la fila numero index
+        img_name = row["image"]  # nom de la imatge
+        caption = str(row["caption"])  # caption d'aquella mostra (pot haver'n-hi 5)
 
-        image = Image.open(self.images_dir / img_name).convert("RGB") # obre la imatge amb PIL i la força a tenir 3 canals
-        image = self.transform(image) # aplica les transformacions. Ara tenim un tensor amb shape [3, 224, 224]
+        image = Image.open(self.images_dir / img_name).convert(
+            "RGB"
+        )  # obre la imatge amb PIL i la força a tenir 3 canals
+        image = self.transform(image)  # aplica les transformacions. Ara tenim un tensor amb shape [3, 224, 224]
 
-        ids = self.vocab.encode(caption, add_special=True) # converteix la caption a llista d'enters segons el vocabulari
+        ids = self.vocab.encode(
+            caption, add_special=True
+        )  # converteix la caption a llista d'enters segons el vocabulari
         if self.return_image_id:
             return image, torch.tensor(ids, dtype=torch.long), img_name
-        return image, torch.tensor(ids, dtype=torch.long) # retorna la imatge (en format tensor) i la caption en format tensor([1, 4, 27, 83, 2])
-                                            # torch.long perquè les capes d'embedding esperen tensors de tipus long
+        return image, torch.tensor(
+            ids, dtype=torch.long
+        )  # retorna la imatge (en format tensor) i la caption en format tensor([1, 4, 27, 83, 2])
+        # torch.long perquè les capes d'embedding esperen tensors de tipus long
 
 
 def collate_fn(batch):
@@ -133,16 +155,23 @@ def collate_fn(batch):
         captions: LongTensor  [B, T] padded with <pad>=0 ######### T és la longitud de la caption més llarga del batch
         lengths:  list[int]   original lengths (including <start>/<end>)
     """
-    batch.sort(key=lambda x: len(x[1]), reverse=True) # Ordena el batch de captions més llargues a més curtes (RNN fucniona millor així??)
-    images, caps = zip(*batch) # separa el batch en dues llistes: [(), (), ...] de tensors d'imatges i [(), (), ...] de tensors de captions
-    images = torch.stack(images, dim=0) # apila les imatges en un unic tensor de shape [B, 3, 244, 244]
+    batch.sort(
+        key=lambda x: len(x[1]), reverse=True
+    )  # Ordena el batch de captions més llargues a més curtes (RNN fucniona millor així??)
+    images, caps = zip(
+        *batch
+    )  # separa el batch en dues llistes: [(), (), ...] de tensors d'imatges i [(), (), ...] de tensors de captions
+    images = torch.stack(images, dim=0)  # apila les imatges en un unic tensor de shape [B, 3, 244, 244]
 
-    lengths = [len(c) for c in caps] # llista amb la longitud de cada caption (amb START i END) caps=[tensor([1,4,7,2]),tensor([1,5,3])] --> lengths=[4,3]
-    targets = torch.zeros(len(caps), max(lengths), dtype=torch.long) # crea un tensor de zeros de shape [B, T] on B és el num de captions i T la len de la caption més llarga (0 representa el token <pad>)
+    lengths = [
+        len(c) for c in caps
+    ]  # llista amb la longitud de cada caption (amb START i END) caps=[tensor([1,4,7,2]),tensor([1,5,3])] --> lengths=[4,3]
+    targets = torch.zeros(
+        len(caps), max(lengths), dtype=torch.long
+    )  # crea un tensor de zeros de shape [B, T] on B és el num de captions i T la len de la caption més llarga (0 representa el token <pad>)
     for i, c in enumerate(caps):
-        targets[i, : lengths[i]] = c # omple cada fila de targets amb els ids de la caption.
+        targets[i, : lengths[i]] = c  # omple cada fila de targets amb els ids de la caption.
     return images, targets, lengths
-
 
 
 def split_image_ids(captions_csv: str | Path, val_size: int = 1000, test_size: int = 1000, seed: int = 42):
@@ -150,14 +179,18 @@ def split_image_ids(captions_csv: str | Path, val_size: int = 1000, test_size: i
     import numpy as np
 
     df = load_captions_df(captions_csv)
-    unique = sorted(df["image"].unique().tolist()) # divideix per imatges úniques, no per captions (si no una caption estaria al train i laltra al test)
-    rng = np.random.default_rng(seed) # generador aleatòri de numpy amb llavor fixa (sempre obtindrem la mateixa divisió --> bo per comparar experiments)
-    rng.shuffle(unique) # barrega imatges
+    unique = sorted(
+        df["image"].unique().tolist()
+    )  # divideix per imatges úniques, no per captions (si no una caption estaria al train i laltra al test)
+    rng = np.random.default_rng(
+        seed
+    )  # generador aleatòri de numpy amb llavor fixa (sempre obtindrem la mateixa divisió --> bo per comparar experiments)
+    rng.shuffle(unique)  # barrega imatges
 
-    test = unique[:test_size] # fa les particions
-    val = unique[test_size : test_size + val_size] 
+    test = unique[:test_size]  # fa les particions
+    val = unique[test_size : test_size + val_size]
     train = unique[test_size + val_size :]
-    return train, val, test # per defecte hi ha 8091 imatges: 6091 al train, 1.000 al val i 1.000 al test
+    return train, val, test  # per defecte hi ha 8091 imatges: 6091 al train, 1.000 al val i 1.000 al test
 
 
 def get_loaders(
@@ -170,24 +203,33 @@ def get_loaders(
 ):
     train_ids, val_ids, test_ids = split_image_ids(captions_csv)
 
-    train_ds = Flickr8kDataset(images_dir, captions_csv, vocab,
-                               transform=get_transform(image_size, train=True),
-                               image_ids=train_ids)
-    val_ds = Flickr8kDataset(images_dir, captions_csv, vocab,
-                             transform=get_transform(image_size, train=False),
-                             image_ids=val_ids)
-    test_ds = Flickr8kDataset(images_dir, captions_csv, vocab,
-                              transform=get_transform(image_size, train=False),
-                              image_ids=test_ids)
+    train_ds = Flickr8kDataset(
+        images_dir, captions_csv, vocab, transform=get_transform(image_size, train=True), image_ids=train_ids
+    )
+    val_ds = Flickr8kDataset(
+        images_dir, captions_csv, vocab, transform=get_transform(image_size, train=False), image_ids=val_ids
+    )
+    test_ds = Flickr8kDataset(
+        images_dir, captions_csv, vocab, transform=get_transform(image_size, train=False), image_ids=test_ids
+    )
     # DataLoaders són iteradors que donen batches. Donem els datasets, la funció collate_fn per preparar els batches (pad de captions i ordenar per longitud), i altres paràmetres.
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, # al train barrejem les mostres però al val i al test no cal.
-                              num_workers=num_workers, collate_fn=collate_fn, pin_memory=True) # pin_memory=True fa que els tensors es carreguin directament a la GPU (si està disponible) en lloc de passar per la RAM, per accelerar l'entrenament
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
-                            num_workers=num_workers, collate_fn=collate_fn, pin_memory=True)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False,
-                             num_workers=num_workers, collate_fn=collate_fn, pin_memory=True)
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,  # al train barrejem les mostres però al val i al test no cal.
+        num_workers=num_workers,
+        collate_fn=collate_fn,
+        pin_memory=True,
+    )  # pin_memory=True fa que els tensors es carreguin directament a la GPU (si està disponible) en lloc de passar per la RAM, per accelerar l'entrenament
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_fn, pin_memory=True
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_fn, pin_memory=True
+    )
 
     return train_loader, val_loader, test_loader, (train_ids, val_ids, test_ids)
+
 
 # Flux:
 # 1. split_image_ids() fa la divisió de les imatges en train/val/test
@@ -198,6 +240,7 @@ def get_loaders(
 # ════════════════════════════════════════════════════════
 # FLICKR30K — HuggingFace (nlphuji/flickr30k)
 # ════════════════════════════════════════════════════════
+
 
 class Flickr30kHFDataset(Dataset):
     """Dataset que llegeix Flickr30k des del format HuggingFace (nlphuji/flickr30k).
@@ -239,8 +282,8 @@ class Flickr30kHFDataset(Dataset):
         img_idx, cap_idx = self.samples[idx]
         row = self.hf_data[img_idx]
 
-        image = row["image"].convert("RGB")      # PIL Image ja carregada pel HF dataset
-        image = self.transform(image)            # [3, 224, 224]
+        image = row["image"].convert("RGB")  # PIL Image ja carregada pel HF dataset
+        image = self.transform(image)  # [3, 224, 224]
 
         caption = row["caption"][cap_idx]
         ids = self.vocab.encode(caption, add_special=True)
@@ -272,20 +315,21 @@ def get_loaders_hf(
 
     # Filtra per split de Karpathy (camp 'split' dins cada fila)
     train_hf = full.filter(lambda x: x["split"] == "train")
-    val_hf   = full.filter(lambda x: x["split"] == "val")
-    test_hf  = full.filter(lambda x: x["split"] == "test")
+    val_hf = full.filter(lambda x: x["split"] == "val")
+    test_hf = full.filter(lambda x: x["split"] == "test")
 
     train_ds = Flickr30kHFDataset(train_hf, vocab, get_transform(image_size, train=True))
-    val_ds   = Flickr30kHFDataset(val_hf,   vocab, get_transform(image_size, train=False))
-    test_ds  = Flickr30kHFDataset(test_hf,  vocab, get_transform(image_size, train=False))
+    val_ds = Flickr30kHFDataset(val_hf, vocab, get_transform(image_size, train=False))
+    test_ds = Flickr30kHFDataset(test_hf, vocab, get_transform(image_size, train=False))
 
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
-                              num_workers=num_workers, collate_fn=collate_fn, pin_memory=True)
-    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False,
-                              num_workers=num_workers, collate_fn=collate_fn, pin_memory=True)
-    test_loader  = DataLoader(test_ds,  batch_size=batch_size, shuffle=False,
-                              num_workers=num_workers, collate_fn=collate_fn, pin_memory=True)
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, collate_fn=collate_fn, pin_memory=True
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_fn, pin_memory=True
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=collate_fn, pin_memory=True
+    )
 
     return train_loader, val_loader, test_loader
-
-

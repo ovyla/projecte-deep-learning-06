@@ -235,6 +235,13 @@ def main():
         import wandb
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, name=args.run_name, config=vars(args)) # li passem els arguments
         wandb.config.update({"vocab_size": len(vocab), "embedding_type": emb_type}) # afegeix mida del vocabulari i tipus d'embedding a wandb
+        
+        wandb.define_metric("global_step")
+        wandb.define_metric("epoch")
+        wandb.define_metric("train/batch_*", step_metric="global_step")
+        wandb.define_metric("train/epoch_*", step_metric="epoch")
+        wandb.define_metric("val/*", step_metric="epoch")
+        wandb.define_metric("test/*", step_metric="epoch")
 
     train_losses: list[float] = [] # per guardar les losses de l'entrenament
     val_losses: list[float] = [] # losses de la val (de cada epoch)
@@ -267,8 +274,46 @@ def main():
             train_losses.append(loss.item()) # guarda la loss del batch
             if i % args.log_step == 0: # comprova si toca imprimir la informació
                 ppl = float(np.exp(min(loss.item(), 20))) # calcula la perplexity (com més baixa millor)
+                
+                # --- Teacher Forcing BLEU al batch actual ---
+                with torch.no_grad():
+                    from torch.nn.utils.rnn import pad_packed_sequence, PackedSequence
+                    preds_idx = outputs.argmax(dim=1)
+                    # Desempaquetem prediccions i targets
+                    p_preds = PackedSequence(preds_idx, targets.batch_sizes, targets.sorted_indices, targets.unsorted_indices)
+                    p_targets = PackedSequence(targets, targets.batch_sizes, targets.sorted_indices, targets.unsorted_indices)
+                    up_preds, _ = pad_packed_sequence(p_preds, batch_first=True)
+                    up_targets, _ = pad_packed_sequence(p_targets, batch_first=True)
+                    
+                    batch_refs, batch_hyps = [], []
+                    for b in range(up_preds.size(0)):
+                        ref, hyp = [], []
+                        for t in range(up_preds.size(1)):
+                            idx_target = up_targets[b, t].item()
+                            if idx_target == 0: # PAD = 0
+                                break
+                            idx_pred = up_preds[b, t].item()
+                            ref.append(vocab.idx2word.get(idx_target, "<unk>"))
+                            hyp.append(vocab.idx2word.get(idx_pred, "<unk>"))
+                        batch_refs.append([ref])
+                        batch_hyps.append(hyp)
+                    
+                    batch_b1 = corpus_bleu(batch_refs, batch_hyps, weights=(1,0,0,0))
+                    batch_b4 = corpus_bleu(batch_refs, batch_hyps, weights=(0.25,0.25,0.25,0.25))
+                    batch_m  = float(np.mean([meteor_score(r, h) for r, h in zip(batch_refs, batch_hyps)]))
+                
                 print(f"epoch {epoch}/{args.epochs}  step {i}/{len(train_loader)}  "
-                      f"loss={loss.item():.4f}  ppl={ppl:.2f}") # imprimeix info de l'entrenament
+                      f"loss={loss.item():.4f}  ppl={ppl:.2f}  b1={batch_b1:.3f}  b4={batch_b4:.3f}  meteor={batch_m:.3f}") # imprimeix info de l'entrenament
+                
+                if use_wandb:
+                    wandb.log({
+                        "global_step": global_step,
+                        "train/batch_loss": loss.item(),
+                        "train/batch_ppl": ppl,
+                        "train/batch_bleu1": batch_b1,
+                        "train/batch_bleu4": batch_b4,
+                        "train/batch_meteor": batch_m,
+                    })
 
         train_loss_epoch = float(np.mean(epoch_losses))
         train_ppl_epoch = float(np.exp(min(train_loss_epoch, 20)))
@@ -284,12 +329,12 @@ def main():
               f"bleu4={bleu_metrics['val/bleu4']:.3f}  meteor={bleu_metrics['val/meteor']:.3f}  ({elapsed:.0f}s)")
         if use_wandb:
             wandb.log({
-                "train/loss": train_loss_epoch,
-                "train/perplexity": train_ppl_epoch,
+                "epoch": epoch,
+                "train/epoch_loss": train_loss_epoch,
+                "train/epoch_ppl": train_ppl_epoch,
                 "val/loss": val_loss,
                 "val/perplexity": val_ppl,
                 **bleu_metrics,
-                "epoch": epoch,
                 "lr": optimizer.param_groups[0]["lr"],
             }) # registra metriques a wandb
 
@@ -391,7 +436,7 @@ def main():
     print(f"[bleu] Corpus BLEU-1: {cb1:.3f}  BLEU-4: {cb4:.3f}  METEOR: {cm:.3f}")
 
     if use_wandb:
-        wandb.log({"bleu_eval_table": bleu_table, "bleu/corpus_bleu1": cb1, "bleu/corpus_bleu4": cb4, "bleu/meteor": cm})
+        wandb.log({"test/eval_table": bleu_table, "test/corpus_bleu1": cb1, "test/corpus_bleu4": cb4, "test/meteor": cm})
     # ------------------------------------------------
 
     if use_wandb:

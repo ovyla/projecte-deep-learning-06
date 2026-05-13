@@ -2,6 +2,7 @@
 
 Based on "Show, Attend and Tell" (Xu et al., 2015).
 """
+
 # Paper original on es basa aquest model: Xu et al. 2015
 
 from __future__ import annotations  # per escriure anotacions modernes
@@ -10,10 +11,10 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-
 # ════════════════════════════════════════════════════════
 # 1. ENCODER
 # ════════════════════════════════════════════════════════
+
 
 class EncoderCNNAttention(nn.Module):
     """ResNet-50 that outputs a spatial grid of feature vectors instead of a single embedding."""
@@ -55,20 +56,21 @@ class EncoderCNNAttention(nn.Module):
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         if self.finetuning:
             with torch.no_grad():
-                x = self._base_forward(images)   # fins layer3, sense gradients
-            out = self.net.layer4(x)             # layer4 amb gradients [B, 2048, 7, 7]
+                x = self._base_forward(images)  # fins layer3, sense gradients
+            out = self.net.layer4(x)  # layer4 amb gradients [B, 2048, 7, 7]
         else:
             with torch.no_grad():
                 x = self._base_forward(images)
-                out = self.net.layer4(x)         # CNN completament congelada [B, 2048, 7, 7]
+                out = self.net.layer4(x)  # CNN completament congelada [B, 2048, 7, 7]
         B, C, H, W = out.shape
         out = out.permute(0, 2, 3, 1)
-        return out.view(B, H * W, C)             # [B, 49, 2048]
+        return out.view(B, H * W, C)  # [B, 49, 2048]
 
 
 # ════════════════════════════════════════════════════════
 # 2. MÒDUL D'ATENCIÓ (Bahdanau)
 # ════════════════════════════════════════════════════════
+
 
 class Attention(nn.Module):
     """Bahdanau (additive) attention over encoder spatial features."""
@@ -87,15 +89,20 @@ class Attention(nn.Module):
     def forward(self, encoder_out: torch.Tensor, h: torch.Tensor):
         # encoder_out: [B, 49, 2048] → les 49 regions de la imatge
         # h:           [B, 512]      → l'estat ocult actual del decoder
-        e = self.full_att(torch.tanh(
-            self.enc_att(encoder_out) + self.dec_att(h).unsqueeze(1)
-            # self.enc_att(encoder_out) → [B, 49, 256] info de cada regió
-            # self.dec_att(h).unsqueeze(1) → [B, 1, 256] info del decoder (s'expandeix a totes les regions)
-            # tanh combina les dues informacions → [B, 49, 256]
-            # full_att redueix a → [B, 49, 1]
-        )).squeeze(2)                          # [B, num_pixels] → elimina última dim
+        e = self.full_att(
+            torch.tanh(
+                self.enc_att(encoder_out)
+                + self.dec_att(h).unsqueeze(1)
+                # self.enc_att(encoder_out) → [B, 49, 256] info de cada regió
+                # self.dec_att(h).unsqueeze(1) → [B, 1, 256] info del decoder (s'expandeix a totes les regions)
+                # tanh combina les dues informacions → [B, 49, 256]
+                # full_att redueix a → [B, 49, 1]
+            )
+        ).squeeze(
+            2
+        )  # [B, num_pixels] → elimina última dim
         # cada valor és "quant important és aquesta regió ara"
-        alpha = self.softmax(e)               # [B, num_pixels] → pesos d'atenció, sumen 1
+        alpha = self.softmax(e)  # [B, num_pixels] → pesos d'atenció, sumen 1
         # ex: regió del gos té alpha=0.8, fons té alpha=0.01...
         context = (encoder_out * alpha.unsqueeze(2)).sum(dim=1)  # [B, encoder_dim]
         # alpha.unsqueeze(2) → [B, 49, 1] per poder multiplicar
@@ -110,17 +117,18 @@ class Attention(nn.Module):
 # 3. DECODER AMB ATENCIÓ
 # ════════════════════════════════════════════════════════
 
+
 class AttentionDecoder(nn.Module):
     """LSTM decoder with attention. Supports teacher-forcing training and beam search."""
 
     def __init__(
         self,
-        encoder_dim: int = 2048,   # mida dels vectors de les regions
-        embed_size: int = 256,     # mida dels embeddings de les paraules
-        hidden_size: int = 512,    # mida de l'estat ocult de la LSTM
-        vocab_size: int = 10000,   # nombre de paraules del vocabulari
+        encoder_dim: int = 2048,  # mida dels vectors de les regions
+        embed_size: int = 256,  # mida dels embeddings de les paraules
+        hidden_size: int = 512,  # mida de l'estat ocult de la LSTM
+        vocab_size: int = 10000,  # nombre de paraules del vocabulari
         attention_dim: int = 256,  # dimensió interna del mòdul d'atenció
-        dropout: float = 0.5,      # probabilitat de dropout
+        dropout: float = 0.5,  # probabilitat de dropout
         max_seq_length: int = 20,  # longitud màxima de la caption generada
         pretrained_weights: "torch.Tensor | None" = None,  # pesos GloVe [vocab_size, embed_size]
         freeze_embeddings: bool = False,  # si True, els pesos GloVe no s'actualitzen
@@ -153,7 +161,7 @@ class AttentionDecoder(nn.Module):
         # capa final: hidden [512] → probabilitats sobre vocabulari [2982]
 
     def _init_hidden(self, encoder_out: torch.Tensor):
-        mean = encoder_out.mean(dim=1)         # [B, encoder_dim] → mitjana de les 49 regions
+        mean = encoder_out.mean(dim=1)  # [B, encoder_dim] → mitjana de les 49 regions
         return torch.tanh(self.init_h(mean)), torch.tanh(self.init_c(mean))
         # retorna h i c inicials [B, 512] calculats a partir de la imatge
 
@@ -163,7 +171,7 @@ class AttentionDecoder(nn.Module):
         # lengths:     longitud real de cada caption
         B = encoder_out.size(0)
         num_pixels = encoder_out.size(1)
-        embeddings = self.dropout(self.embed(captions))   # [B, T, embed_size]
+        embeddings = self.dropout(self.embed(captions))  # [B, T, embed_size]
         h, c = self._init_hidden(encoder_out)
 
         decode_lengths = [l - 1 for l in lengths]
@@ -204,8 +212,8 @@ class AttentionDecoder(nn.Module):
         device = encoder_out.device
         k = beam_size  # k = nombre de camins actius (comença a 3)
 
-        enc = encoder_out.expand(k, -1, -1)               # [k, num_pixels, enc_dim] → replica la imatge k vegades
-        h, c = self._init_hidden(enc)                      # [k, hidden_size] → un h i c per cada camí
+        enc = encoder_out.expand(k, -1, -1)  # [k, num_pixels, enc_dim] → replica la imatge k vegades
+        h, c = self._init_hidden(enc)  # [k, hidden_size] → un h i c per cada camí
 
         seqs = torch.full((k, 1), start_idx, dtype=torch.long, device=device)
         # [3, 1] → els 3 camins comencen amb <start>
@@ -216,13 +224,13 @@ class AttentionDecoder(nn.Module):
         # llistes on guardarem els camins que han acabat amb <end>
 
         for step in range(self.max_seq_length):
-            embeddings = self.embed(seqs[:, -1])            # [k, embed_size] → embedding última paraula de cada camí
-            context, _ = self.attention(enc, h)            # [k, enc_dim] → context d'atenció per cada camí
+            embeddings = self.embed(seqs[:, -1])  # [k, embed_size] → embedding última paraula de cada camí
+            context, _ = self.attention(enc, h)  # [k, enc_dim] → context d'atenció per cada camí
             lstm_in = torch.cat([embeddings, context], dim=1)  # [k, 2304]
-            h, c = self.lstm_cell(lstm_in, (h, c))         # [k, 512] → nou estat
+            h, c = self.lstm_cell(lstm_in, (h, c))  # [k, 512] → nou estat
 
             log_probs = torch.log_softmax(self.fc(h), dim=1)  # [k, vocab_size] → log-probabilitats
-            total = scores.unsqueeze(1) + log_probs            # [k, vocab_size] → score acumulat + nou
+            total = scores.unsqueeze(1) + log_probs  # [k, vocab_size] → score acumulat + nou
 
             if step == 0:
                 top_scores, top_words = total[0].topk(k)
@@ -238,9 +246,9 @@ class AttentionDecoder(nn.Module):
 
             seqs = torch.cat([seqs[beam_idx], word_idx.unsqueeze(1)], dim=1)
             # actualitza les seqüències: afegeix la nova paraula a cada camí
-            h, c = h[beam_idx], c[beam_idx]   # reorganitza estats segons beam_idx
-            enc = enc[beam_idx]               # reorganitza imatge
-            scores = top_scores               # actualitza puntuacions
+            h, c = h[beam_idx], c[beam_idx]  # reorganitza estats segons beam_idx
+            enc = enc[beam_idx]  # reorganitza imatge
+            scores = top_scores  # actualitza puntuacions
 
             still_running = []
             for j in range(k):
@@ -254,7 +262,7 @@ class AttentionDecoder(nn.Module):
             if not still_running:
                 break  # tots els camins han acabat, parem
 
-            k = len(still_running)         # actualitza k (menys camins actius)
+            k = len(still_running)  # actualitza k (menys camins actius)
             seqs = seqs[still_running]
             h, c = h[still_running], c[still_running]
             enc = enc[still_running]
@@ -268,6 +276,7 @@ class AttentionDecoder(nn.Module):
         best = max(range(len(complete_scores)), key=lambda i: complete_scores[i])
         return complete_seqs[best]
         # retorna la seqüència amb la puntuació (log-prob) més alta
+
 
 """
 📷 IMAGEN

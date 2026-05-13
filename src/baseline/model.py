@@ -1,19 +1,23 @@
 """CNN encoder + LSTM decoder for image captioning (yunjey-style, modernized)."""
-from __future__ import annotations # anotacions modernes
 
-import torch # per crear tensors
-import torch.nn as nn # xarxes neuronals de torch
-import torchvision.models as models # models preentrenats de torchvision
-from torch.nn.utils.rnn import pack_padded_sequence # per teballar amb seqüències de text de longitud variable
+from __future__ import annotations  # anotacions modernes
 
-# l'EncoderCNN utilitza un ResNet preentrenat per agafar imatges (input) i extreure un vector de característiques (output) de mida `embed_size`. 
+import torch  # per crear tensors
+import torch.nn as nn  # xarxes neuronals de torch
+import torchvision.models as models  # models preentrenats de torchvision
+from torch.nn.utils.rnn import pack_padded_sequence  # per teballar amb seqüències de text de longitud variable
 
-class EncoderCNN(nn.Module): # com q hereta pto tenir: model.parameters(), .to(device), .train(), .eval()...
+# l'EncoderCNN utilitza un ResNet preentrenat per agafar imatges (input) i extreure un vector de característiques (output) de mida `embed_size`.
+
+
+class EncoderCNN(nn.Module):  # com q hereta pto tenir: model.parameters(), .to(device), .train(), .eval()...
     """ResNet-50 encoder. Outputs an embedding of size `embed_size`."""
 
-    def __init__(self, embed_size: int = 256, backbone: str = "resnet50"): # embed_size és la mida del vector de característiques de la imatge
-                                                                           # backbone és el tipus de CNN preentrenat a utilitzar (resnet50 o resnet152)
-        super().__init__() # obligatori per inicialitzar la classe base nn.Module. Es creen capes internes self.cnn, self.linear, self.bn
+    def __init__(
+        self, embed_size: int = 256, backbone: str = "resnet50"
+    ):  # embed_size és la mida del vector de característiques de la imatge
+        # backbone és el tipus de CNN preentrenat a utilitzar (resnet50 o resnet152)
+        super().__init__()  # obligatori per inicialitzar la classe base nn.Module. Es creen capes internes self.cnn, self.linear, self.bn
         if backbone == "resnet50":
             try:
                 net = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
@@ -30,7 +34,7 @@ class EncoderCNN(nn.Module): # com q hereta pto tenir: model.parameters(), .to(d
         # Guardem la xarxa sencera i usem les capes per nom al forward
         # (nn.Sequential trencava les connexions internes de la ResNet)
         self.net = net
-        self.linear = nn.Linear(net.fc.in_features, embed_size) # [B, 2048] → [B, embed_size]
+        self.linear = nn.Linear(net.fc.in_features, embed_size)  # [B, 2048] → [B, embed_size]
         self.bn = nn.BatchNorm1d(embed_size, momentum=0.01)
 
         # Freeze CNN backbone (only fine-tune linear + bn)
@@ -47,8 +51,8 @@ class EncoderCNN(nn.Module): # com q hereta pto tenir: model.parameters(), .to(d
             x = self.net.layer2(x)
             x = self.net.layer3(x)
             x = self.net.layer4(x)
-            features = self.net.avgpool(x)   # [B, 2048, 1, 1]
-        features = features.flatten(1)       # [B, 2048]
+            features = self.net.avgpool(x)  # [B, 2048, 1, 1]
+        features = features.flatten(1)  # [B, 2048]
         features = self.bn(self.linear(features))  # [B, embed_size]
         return features
 
@@ -57,55 +61,89 @@ class EncoderCNN(nn.Module): # com q hereta pto tenir: model.parameters(), .to(d
 class DecoderRNN(nn.Module):
     """LSTM decoder conditioned on image features (fed once as the first input)."""
 
-    def __init__(self, embed_size: int, hidden_size: int, vocab_size: int,
-                 num_layers: int = 1, max_seq_length: int = 20, dropout: float = 0.5,
-                 pretrained_weights: "torch.Tensor | None" = None, freeze_embeddings: bool = False):
+    def __init__(
+        self,
+        embed_size: int,
+        hidden_size: int,
+        vocab_size: int,
+        num_layers: int = 1,
+        max_seq_length: int = 20,
+        dropout: float = 0.5,
+        pretrained_weights: "torch.Tensor | None" = None,
+        freeze_embeddings: bool = False,
+    ):
         # pretrained_weights: matriu [vocab_size, embed_size] de GloVe (o None per inicialització aleatòria)
         # freeze_embeddings: si True, els pesos de l'embedding no s'actualitzen durant l'entrenament
         super().__init__()
-        self.embed = nn.Embedding(vocab_size, embed_size) # crea una capa d'embedding que converteix els ids de les paraules (de 0 a vocab_size-1) en vectors d'embedding de mida embed_size: [B, T] -> [B, T, embed_size]
-                                                          # internament conté una matriu (p.ex. [2980, 256]) on cada fila és el vector d'una paraula.
+        self.embed = nn.Embedding(
+            vocab_size, embed_size
+        )  # crea una capa d'embedding que converteix els ids de les paraules (de 0 a vocab_size-1) en vectors d'embedding de mida embed_size: [B, T] -> [B, T, embed_size]
+        # internament conté una matriu (p.ex. [2980, 256]) on cada fila és el vector d'una paraula.
         if pretrained_weights is not None:
             self.embed.weight = nn.Parameter(pretrained_weights)  # substitueix pesos aleatoris per GloVe
         if freeze_embeddings:
             self.embed.weight.requires_grad = False  # GloVe frozen: els pesos no canvien durant train
         self.dropout = nn.Dropout(dropout)
-        self.lstm = nn.LSTM(embed_size, hidden_size, num_layers, batch_first=True) # crea una capa LSTM que processa seqüències d'embeddings. input_size=embed_size (mida dels vectors d'embedding), hidden_size=mida de l'estat ocult, num_layers=número de capes apilades, batch_first=True significa que les dimensions d'entrada i sortida seran [B, T, ...] en lloc de [T, B, ...]
-        self.linear = nn.Linear(hidden_size, vocab_size) # capa final que transforma cada estat ocult de la LSTM en una predicció de token de mida vocab_size.
-        self.max_seq_length = max_seq_length # guarda la len màxima de les frases
+        self.lstm = nn.LSTM(
+            embed_size, hidden_size, num_layers, batch_first=True
+        )  # crea una capa LSTM que processa seqüències d'embeddings. input_size=embed_size (mida dels vectors d'embedding), hidden_size=mida de l'estat ocult, num_layers=número de capes apilades, batch_first=True significa que les dimensions d'entrada i sortida seran [B, T, ...] en lloc de [T, B, ...]
+        self.linear = nn.Linear(
+            hidden_size, vocab_size
+        )  # capa final que transforma cada estat ocult de la LSTM en una predicció de token de mida vocab_size.
+        self.max_seq_length = max_seq_length  # guarda la len màxima de les frases
 
     def forward(self, features: torch.Tensor, captions: torch.Tensor, lengths: list[int]):
         # features: [B, embed_size] (vector de característiques de la imatge)
         # captions: [B, T] (seqüència de tokens de les captions) [[1,34,56,2,0],[1,3,2,0,0]]
-        # lens de cada caption 
-        embeddings = self.dropout(self.embed(captions)) # converteix els ids de les paraules en vectors. Abans captions: [B, T]; després embeddings: [B, T, embed_size]; després aplica dropout per regularització
-        embeddings = torch.cat((features.unsqueeze(1), embeddings), dim=1) # features té forma [B, embed_size]; features.unsqueeze(1) -> [B, 1, embed_size]; després concatena al principi de la seqüència d'embeddings: [B, 1 + T, embed_size]
+        # lens de cada caption
+        embeddings = self.dropout(
+            self.embed(captions)
+        )  # converteix els ids de les paraules en vectors. Abans captions: [B, T]; després embeddings: [B, T, embed_size]; després aplica dropout per regularització
+        embeddings = torch.cat(
+            (features.unsqueeze(1), embeddings), dim=1
+        )  # features té forma [B, embed_size]; features.unsqueeze(1) -> [B, 1, embed_size]; després concatena al principi de la seqüència d'embeddings: [B, 1 + T, embed_size]
         # captions already include <start>; lengths are full caption lengths
-        packed = pack_padded_sequence(embeddings, lengths, batch_first=True) # empaqueta les seqüències perquè LSTM ignori el padding mapejat amb la llista lengths, si no LSTM processaria el padding com a part d seqüència
-        hiddens, _ = self.lstm(packed) # passa les seqüències empaquetades per la LSTM. hiddens és un tensor empaqeutat amb els estats ocults de la LSTM per cada pas. No fem servir els estats finals.
-        outputs = self.linear(self.dropout(hiddens.data)) # hiddens.data desempaqueta tensor, sense padding [sum(lengths), hidden_size]; li aplica dropout; i passa per self.linear que converteix cada estat ocult en una predicció de token: [sum(lengths), vocab_size]
-        return outputs # retorna prediccions del decoder. Durant l'entrenament aquestes sortides es comparen amb el target.
+        packed = pack_padded_sequence(
+            embeddings, lengths, batch_first=True
+        )  # empaqueta les seqüències perquè LSTM ignori el padding mapejat amb la llista lengths, si no LSTM processaria el padding com a part d seqüència
+        hiddens, _ = self.lstm(
+            packed
+        )  # passa les seqüències empaquetades per la LSTM. hiddens és un tensor empaqeutat amb els estats ocults de la LSTM per cada pas. No fem servir els estats finals.
+        outputs = self.linear(
+            self.dropout(hiddens.data)
+        )  # hiddens.data desempaqueta tensor, sense padding [sum(lengths), hidden_size]; li aplica dropout; i passa per self.linear que converteix cada estat ocult en una predicció de token: [sum(lengths), vocab_size]
+        return outputs  # retorna prediccions del decoder. Durant l'entrenament aquestes sortides es comparen amb el target.
 
-    @torch.no_grad() # aquest mètode no calcularà gradients
-    def sample(self, features: torch.Tensor, states=None) -> torch.Tensor: 
+    @torch.no_grad()  # aquest mètode no calcularà gradients
+    def sample(self, features: torch.Tensor, states=None) -> torch.Tensor:
         # features: [B, embed_size] (vector de característiques de la imatge)
         # states serien els estats interns inicials de la LSTM. A zero per defecte.
         """Greedy generation. Returns [B, max_seq_length] token ids."""
         # greedy generation vol dir que a cada pas escull la paraula amb probabilitat més alta. No fa alternatives com beam_search.
-        sampled = [] # anirem guardant els tensors dels tokens generats
-        inputs = features.unsqueeze(1) # prepara el primer input per la LSTM. [B, embed_size] -> [B, 1, embed_size], perquè LSTM espera una seqüència (aquí de longitud 1) d'embeddings com a input
-        for _ in range(self.max_seq_length): # bucle de generació. Es repetirà max_seq_length vegades
-            hiddens, states = self.lstm(inputs, states) # passa l'input actual per la LSTM. La 1a iteració input és el vector de la imatge, les següents l'imput és el vector de la paraula anterior. hidden i state es van actualitzant a cada pas.
-            outputs = self.linear(hiddens.squeeze(1)) # [B, 1, hidden_size] -> [B, hidden_size]; després passa per self.linear que converteix a [B, vocab_size], on cada element és la predicció de token per a cada mostra del batch
-            _, predicted = outputs.max(1) # tria la paraula amb predicció més alta.
-            sampled.append(predicted) 
-            inputs = self.embed(predicted).unsqueeze(1) # converteix els ids de les paraules a vectors d'embedding per al següent pas. predicted: [B] -> self.embed(predicted): [B, embed_size] -> unsqueeze(1) -> [B, 1, embed_size]   
-        return torch.stack(sampled, dim=1) # converteix la llista de tokens a un tensor [B, max_seq_length] cada fila és una caption.
-    
+        sampled = []  # anirem guardant els tensors dels tokens generats
+        inputs = features.unsqueeze(
+            1
+        )  # prepara el primer input per la LSTM. [B, embed_size] -> [B, 1, embed_size], perquè LSTM espera una seqüència (aquí de longitud 1) d'embeddings com a input
+        for _ in range(self.max_seq_length):  # bucle de generació. Es repetirà max_seq_length vegades
+            hiddens, states = self.lstm(
+                inputs, states
+            )  # passa l'input actual per la LSTM. La 1a iteració input és el vector de la imatge, les següents l'imput és el vector de la paraula anterior. hidden i state es van actualitzant a cada pas.
+            outputs = self.linear(
+                hiddens.squeeze(1)
+            )  # [B, 1, hidden_size] -> [B, hidden_size]; després passa per self.linear que converteix a [B, vocab_size], on cada element és la predicció de token per a cada mostra del batch
+            _, predicted = outputs.max(1)  # tria la paraula amb predicció més alta.
+            sampled.append(predicted)
+            inputs = self.embed(predicted).unsqueeze(
+                1
+            )  # converteix els ids de les paraules a vectors d'embedding per al següent pas. predicted: [B] -> self.embed(predicted): [B, embed_size] -> unsqueeze(1) -> [B, 1, embed_size]
+        return torch.stack(
+            sampled, dim=1
+        )  # converteix la llista de tokens a un tensor [B, max_seq_length] cada fila és una caption.
 
-#ENTRENAMENT 
+
+# ENTRENAMENT
 #    images
-#[B, 3, 224, 224]
+# [B, 3, 224, 224]
 #        |
 #        v
 #  EncoderCNN
@@ -121,9 +159,9 @@ class DecoderRNN(nn.Module):
 #     outputs
 # [sum(lengths), vocab_size]
 
-#INFERÈNCIA 
+# INFERÈNCIA
 #    images
-#[B, 3, 224, 224]
+# [B, 3, 224, 224]
 #        |
 #        v
 #  EncoderCNN
@@ -140,12 +178,11 @@ class DecoderRNN(nn.Module):
 # [B, max_seq_length]
 
 
-
 # batch_size = 32
-#embed_size = 256
-#hidden_size = 512
-#vocab_size = 2982
-#max_seq_length = 20
+# embed_size = 256
+# hidden_size = 512
+# vocab_size = 2982
+# max_seq_length = 20
 
 # EncoderCNN
 # imatges: [32, 3, 224, 224]
